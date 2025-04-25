@@ -1,0 +1,3 @@
+CREATE DATABASE 'CoffeeApp';
+CREATE USER admin;
+ALTER USER admin WITH PASSWORD 'Password';
