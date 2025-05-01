@@ -10,6 +10,10 @@ from database import engine, SessionLocal
 from sqlalchemy.orm import Session
 #Declare data models
 
+
+models.Base.metadata.create_all(bind=engine)
+
+
 #User has UID, Username, and Utensils
 class UtensilsBase(BaseModel):
     Utensil: str
@@ -34,7 +38,8 @@ class IngredientBase(BaseModel):
 
 app = FastAPI()
 
-models.Base.metadata.create_all(bind=engine)
+
+
 
 def get_db():
     db = SessionLocal()
@@ -58,6 +63,19 @@ app.add_middleware(
     allow_headers = ["*"],
 )
 
+
+def commit_change(i, db: db_dependency):
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+
+def delete_obj(i, db:db_dependency):
+    db.delete(i)
+    db.commit()
+    db.refresh(i)
+
+
+
 # Show all Users in the database
 @app.get("/users")
 async def show_users(db: db_dependency, limit: int = 20):
@@ -67,7 +85,7 @@ async def show_users(db: db_dependency, limit: int = 20):
     return result
 
 # Show all recipies
-@app.get("/recipies")
+@app.get("recipies")
 async def show_recipies(db: db_dependency, limit: int = 20):
     result = db.query(models.Recipie).filter(models.Recipie.id <= limit).all()
     if not result:
@@ -78,9 +96,7 @@ async def show_recipies(db: db_dependency, limit: int = 20):
 @app.post("/users")
 async def create_user(user: UserBase, db:db_dependency):
     db_user = models.User(username=user.Username, password=user.Password)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    commit_change(db_user, db)
     for i in user.Utensils:
         db_utensil = models.Utensils(uid=db_user.id, utensil=i.Utensil)
         db.add(db_utensil)
@@ -89,15 +105,13 @@ async def create_user(user: UserBase, db:db_dependency):
 # Create new recipie with current user
 @app.post("/recipies")
 async def create_recipie(recipie: RecipeBase, user: UserBase, db: db_dependency):
-    db_user = db.query(models.User).filter(models.User.username == user.Username and models.User.password == user.Password).first()
+    db_user = db.query(models.User).filter(models.User.username == user.Username, models.User.password == user.Password).first()
 
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    db_recipie = models.Recipie(uid=db_user.id, recipie=recipie.Recipie)
-    db.add(db_recipie)
-    db.commit()
-    db.refresh(db_recipie)
+    db_recipie = models.Recipie(uid=db_user.id, title=recipie.Title, recipie=recipie.Recipie)
+    commit_change(db_recipie, db)
     for i in recipie.Utensils:
         db_utensil = models.Utensils(uid=db_user.id, rid=db_recipie.id, utensil=i.Utensil)
         db.add(db_utensil)
@@ -105,12 +119,12 @@ async def create_recipie(recipie: RecipeBase, user: UserBase, db: db_dependency)
 
 # Show information for single recipie
 @app.get("/recipie")
-async def show_recipie(comment: CommentsBase, user: UserBase, recipie: RecipeBase, db: db_dependency):
+async def show_recipie(comment: CommentsBase, user: UserBase, recipie_title , db: db_dependency):
     db_user = db.query(models.User).filter(models.User.username == user.Username and models.User.password == user.Password).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    db_recipie = db.query(models.Recipie).filter(models.Recipie.title == recipie.Title).first()
+    db_recipie = db.query(models.Recipie).filter(models.Recipie.title == recipie_title).first()
     if not db_recipie:
         raise HTTPException(status_code=404, detail="Recipie not found")
 
@@ -125,7 +139,7 @@ async def show_recipie(comment: CommentsBase, user: UserBase, recipie: RecipeBas
     return db_recipie, db_comments, db_author
 
 # create comment on recipie
-@app.post("/comments/")
+@app.post("/comments")
 async def create_comment(comment: CommentsBase, user: UserBase, recipie: RecipeBase, db: db_dependency):
     db_user = db.query(models.User).filter(models.User.username == user.Username and models.User.password == user.Password).first()
     if not db_user:
@@ -136,6 +150,31 @@ async def create_comment(comment: CommentsBase, user: UserBase, recipie: RecipeB
         raise HTTPException(status_code=404, detail="Recipie not found")
 
     db_comment = models.Comment(comment=comment.Comment, rating=comment.Rating, uid=db_user.id, rid=db_recipie.id)
-    db.add(db_comment)
-    db.commit()
-    db.refresh(db_recipie)
+    commit_change(db_comment, db)
+
+@app.post("/comments/")
+async def delete_comment(comment: CommentsBase, user: UserBase, recipie: RecipeBase, db: db_dependency, comment_id: int):
+    db_user = db.query(models.User).filter(models.User.username == user.Username and models.User.password == user.Password).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_recipie = db.query(models.Recipie).filter(models.Recipie.title == recipie.Title).first()
+    if not db_recipie:
+        raise HTTPException(status_code=404, detail="Recipie not found")
+
+    db_comment = db.query(models.Comment).filter(models.comment.id == comment_id).first()
+
+    delete_obj(db_comment, db)
+
+
+@app.post("/recipies/")
+async def delete_recipie(user: UserBase, recipie: RecipeBase, db: db_dependency, rid: int):
+    db_user = db.query(models.User).filter(models.User.username == user.Username and models.User.password == user.Password).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_recipie = db.query(models.Recipie).filter(models.Recipie.id == rid and recipie.uid == db_user.uid).first()
+    if not db_recipie:
+        raise HTTPException(status_code=404, detail="Recipie not found")
+
+    delete_obj(db_recipie, db)
