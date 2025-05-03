@@ -42,21 +42,21 @@ export async function register(
   password: string
 ): Promise<{ status: string }> {
   try {
-    const res = await fetch(`${API_URL}/users`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        Email: email,
+  const res = await fetch(`${API_URL}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+        Username: email,
         Password: password,
         Utensils: []
-      }),
-    });
-    
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || "Registration failed");
-    }
-    return { status: "ok" };
+    }),
+  });
+  
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || "Registration failed");
+  }
+  return { status: "ok" };
   } catch (error) {
     console.error('Registration error:', error);
     throw new Error("Failed to connect to the server. Please try again later.");
@@ -69,14 +69,14 @@ export async function login(
 ): Promise<{ status: string }> {
   try {
     console.log('Attempting login with:', { email });
-    const res = await fetch(`${API_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+  const res = await fetch(`${API_URL}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         Username: email,
         Password: password 
       }),
-    });
+  });
     
     console.log('Login response status:', res.status);
     console.log('Login response status text:', res.statusText);
@@ -86,7 +86,7 @@ export async function login(
       try {
         const errorData = await res.json();
         console.log('Error response data:', errorData);
-        
+  
         // Handle validation errors (422)
         if (res.status === 422 && errorData.detail && Array.isArray(errorData.detail)) {
           errorMessage = errorData.detail.map((err: any) => {
@@ -109,25 +109,25 @@ export async function login(
     }
     
     // Get the response data
-    const data = await res.json();
+  const data = await res.json();
     console.log('Login response data:', data);
-    
+  
     // Store user info
-    localStorage.setItem(USER_KEY, email);
-    
-    // Check if user is admin by trying to access admin endpoint
-    try {
+  localStorage.setItem(USER_KEY, email);
+  
+  // Check if user is admin by trying to access admin endpoint
+  try {
       const adminRes = await fetch(`${API_URL}/admin/recipes?username=${email}`);
-      // Only set isAdmin to true if we get a 200 OK response
-      const isAdmin = adminRes.status === 200;
-      localStorage.setItem('isAdmin', isAdmin.toString());
-      console.log('Login - Admin check result:', isAdmin);
-    } catch (err) {
-      console.error('Login - Error checking admin status:', err);
-      localStorage.setItem('isAdmin', 'false');
-    }
-    
-    return { status: "ok" };
+    // Only set isAdmin to true if we get a 200 OK response
+    const isAdmin = adminRes.status === 200;
+    localStorage.setItem('isAdmin', isAdmin.toString());
+    console.log('Login - Admin check result:', isAdmin);
+  } catch (err) {
+    console.error('Login - Error checking admin status:', err);
+    localStorage.setItem('isAdmin', 'false');
+  }
+  
+  return { status: "ok" };
   } catch (error) {
     console.error('Login error:', error);
     if (error instanceof Error) {
@@ -282,10 +282,19 @@ export async function deleteNote(
 }
 
 export async function saveAsMyVersion(
-  id: string
+  id: string,
+  data: RecipeFormData
 ): Promise<{ id: string }> {
   const res = await fetch(`${API_URL}/recipies/${id}/clone`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      Title: data.title,
+      Description: data.description,
+      Utensils: data.equipment.map((u) => ({ Utensil: u })),
+      Recipie: data.instructions.join("\n"),
+      Ingredients: data.ingredients,
+    }),
   });
   if (!res.ok) throw new Error("Failed to save as my version");
   return res.json();
@@ -313,9 +322,12 @@ export async function fetchAllRecipes(): Promise<{
 export async function createMasterRecipe(
   data: RecipeFormData
 ): Promise<{ id: string }> {
-  const res = await fetch(`${API_URL}/admin/recipes`, {
+  const res = await fetch(`${API_URL}/admin/recipes?username=${getCurrentUser()}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    },
     body: JSON.stringify({
       Title: data.title,
       Description: data.description,
@@ -324,7 +336,12 @@ export async function createMasterRecipe(
       Ingredients: data.ingredients,
     }),
   });
-  if (!res.ok) throw new Error("Failed to create master recipe");
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error('Admin access required');
+    }
+    throw new Error("Failed to create master recipe");
+  }
   return res.json();
 }
 
@@ -332,9 +349,12 @@ export async function updateMasterRecipe(
   id: string,
   data: RecipeFormData
 ): Promise<{ status: string }> {
-  const res = await fetch(`${API_URL}/admin/recipes/${id}`, {
+  const res = await fetch(`${API_URL}/admin/recipes/${id}?username=${getCurrentUser()}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    },
     body: JSON.stringify({
       Title: data.title,
       Description: data.description,
@@ -343,17 +363,30 @@ export async function updateMasterRecipe(
       Ingredients: data.ingredients,
     }),
   });
-  if (!res.ok) throw new Error("Failed to update master recipe");
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error('Admin access required');
+    }
+    throw new Error("Failed to update master recipe");
+  }
   return { status: "ok" };
 }
 
 export async function deleteMasterRecipe(
   id: string
 ): Promise<{ status: string }> {
-  const res = await fetch(`${API_URL}/admin/recipes/${id}`, {
+  const res = await fetch(`${API_URL}/admin/recipes/${id}?username=${getCurrentUser()}`, {
     method: "DELETE",
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    }
   });
-  if (!res.ok) throw new Error("Failed to delete master recipe");
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error('Admin access required');
+    }
+    throw new Error("Failed to delete master recipe");
+  }
   return { status: "ok" };
 }
 
@@ -463,4 +496,22 @@ export async function updateUsername(username: string): Promise<{ status: string
   });
   if (!res.ok) throw new Error("Failed to update username");
   return res.json();
+}
+
+export async function deleteRecipe(
+  id: string
+): Promise<{ status: string }> {
+  const res = await fetch(`${API_URL}/recipies/${id}?username=${getCurrentUser()}`, {
+    method: "DELETE",
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    }
+  });
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error('Cannot delete master recipes');
+    }
+    throw new Error("Failed to delete recipe");
+  }
+  return { status: "ok" };
 }

@@ -240,6 +240,28 @@ def update_recipe(id: int, payload: RecipeUpdate, username: str = Query(...), db
     db.commit()
     return {"status": "ok"}
 
+@app.delete("/recipies/{id}")
+def delete_recipe(id: int, username: str = Query(...), db: Session = Depends(get_db)):
+    r = db.query(models.Recipe).get(id)
+    if not r:
+        raise HTTPException(404, "Recipe not found")
+    
+    # Check if trying to delete a master recipe
+    if r.is_master_recipe:
+        raise HTTPException(403, "Cannot delete master recipes")
+    
+    # Delete all related records first
+    db.query(models.RecipeUtensil).filter_by(recipe_id=id).delete()
+    db.query(models.RecipeInstruction).filter_by(recipe_id=id).delete()
+    db.query(models.RecipeIngredient).filter_by(recipe_id=id).delete()
+    db.query(models.Rating).filter_by(recipe_id=id).delete()
+    db.query(models.Note).filter_by(recipe_id=id).delete()
+    
+    # Delete the recipe
+    db.delete(r)
+    db.commit()
+    return {"status": "ok"}
+
 
 # --- Ratings & Notes ---
 
@@ -265,31 +287,31 @@ def delete_note(id: int, note_index: int, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 @app.post("/recipies/{id}/clone")
-def clone_recipe(id: int, db: Session = Depends(get_db)):
+def clone_recipe(id: int, payload: RecipeUpdate, db: Session = Depends(get_db)):
     # Get the original recipe
     original = db.query(models.Recipe).get(id)
     if not original:
         raise HTTPException(404, "Recipe not found")
 
-    # Create a new recipe as a personal copy
+    # Create a new recipe as a personal copy with the edited data
     r = models.Recipe(
-        title=original.title,
-        description=original.description,
+        title=payload.Title,
+        description=payload.Description,
         is_master_recipe=0  # Set as personal recipe
     )
     db.add(r); db.flush()
 
-    # Copy utensils
-    for u in original.utensils:
-        db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u.utensil))
+    # Add utensils from the edited data
+    for u in payload.Utensils:
+        db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
 
-    # Copy ingredients
-    for i in original.ingredients:
-        db.add(models.RecipeIngredient(recipe_id=r.id, text=i.text))
+    # Add ingredients from the edited data
+    for ingredient in payload.Ingredients:
+        db.add(models.RecipeIngredient(recipe_id=r.id, text=ingredient))
 
-    # Copy instructions
-    for inst in original.instructions:
-        db.add(models.RecipeInstruction(recipe_id=r.id, step=inst.step))
+    # Add instructions from the edited data
+    for step in payload.Recipie.split("\n"):
+        db.add(models.RecipeInstruction(recipe_id=r.id, step=step))
 
     db.commit()
     return {"id": r.id}

@@ -5,11 +5,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   fetchRecipeById,
-  saveAsMyVersion,
   saveRating,
   addNote,
   RecipeDetail,
-  deleteNote
+  deleteNote,
+  deleteRecipe
 } from "@/lib/api";
 import RatingStars from "@/components/RatingStars";
 import { useRouter } from "next/navigation";
@@ -23,7 +23,6 @@ export default function RecipeDetailPage() {
   const [rating, setRating] = useState<number>(0);
   const [noteText, setNoteText] = useState("");
   const [notes, setNotes] = useState<string[]>([]);
-  const [savingVersion, setSavingVersion] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -78,11 +77,17 @@ export default function RecipeDetailPage() {
     setNoteText("");
   };
 
-  const handleSaveVersion = async () => {
-    setSavingVersion(true);
-    await saveAsMyVersion(recipe.id);
-    setSavingVersion(false);
-    alert("Saved as your personal version!");
+  const handleDelete = async () => {
+    if (!recipe) return;
+    if (!confirm("Are you sure you want to delete this recipe?")) return;
+    
+    try {
+      await deleteRecipe(recipe.id);
+      router.push('/recipes'); // Redirect to recipes list after deletion
+    } catch (err) {
+      setError("Failed to delete recipe");
+      console.error(err);
+    }
   };
 
   return (
@@ -151,18 +156,19 @@ export default function RecipeDetailPage() {
 
       <div className="flex gap-4">
         <button
-          onClick={handleSaveVersion}
-          disabled={savingVersion}
-          className="btn-coffee"
-        >
-          {savingVersion ? "Saving…" : "Save as My Version"}
-        </button>
-        <button
           onClick={() => router.push(`/recipes/${recipe.id}/edit`)}
           className="btn-coffee"
         >
           Edit Recipe
         </button>
+        {!recipe.isMasterRecipe && (
+          <button
+            onClick={handleDelete}
+            className="btn-coffee bg-red-600 hover:bg-red-700"
+          >
+            Delete Recipe
+          </button>
+        )}
       </div>
     </div>
   );
