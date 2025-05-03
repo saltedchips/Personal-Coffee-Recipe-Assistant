@@ -1,11 +1,21 @@
+# server/database.py
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+from models import Base
 
-URL_DATABASE = 'postgresql://admin:Password@localhost:5432/coffeeapp'
+SQLALCHEMY_DATABASE_URL = "postgresql://admin:password@localhost:5432/coffeeapp"
 
-engine = create_engine(URL_DATABASE)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    echo=True,
+)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
 
-Base = declarative_base()
+# Ensures all tables from models.py exist
+Base.metadata.create_all(bind=engine)
