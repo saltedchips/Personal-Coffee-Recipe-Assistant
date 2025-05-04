@@ -28,6 +28,7 @@ def get_db():
     finally:
         db.close()
 
+
 # --- Schemas ---
 
 class UserCreate(BaseModel):
@@ -47,10 +48,10 @@ class EquipmentIn(BaseModel):
 
 class RecipeCreate(BaseModel):
     Title: str
-    Description: str = ""  # Add description field
-    Utensils: List[Dict[str, str]]  # [{ "Utensil": "French Press" }]
-    Recipie: str                    # newline-separated instructions
-    Ingredients: List[str] = []     # List of ingredients
+    Description: str = ""
+    Utensils: List[Dict[str, str]]
+    Recipie: str
+    Ingredients: List[str] = []
 
 class RecipeDetailOut(BaseModel):
     id: int
@@ -68,7 +69,7 @@ class RecipesOut(BaseModel):
 
 class RecipeUpdate(BaseModel):
     Title: str
-    Description: str = ""  # Add description field
+    Description: str = ""
     Utensils: List[Dict[str, str]]
     Recipie: str
     Ingredients: List[str] = []
@@ -79,10 +80,12 @@ class RatingIn(BaseModel):
 class NoteIn(BaseModel):
     note: str
 
+class UserRoleOut(BaseModel):
+    role: str
+
 
 # --- Auth ----------
 
-# Add admin check function
 def check_admin(username: str, db: Session = Depends(get_db)):
     user = db.query(models.User).filter_by(username=username).first()
     if not user or user.role != "admin":
@@ -91,18 +94,16 @@ def check_admin(username: str, db: Session = Depends(get_db)):
 
 @app.post("/users", status_code=201)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
-    # Check if username already exists
     existing_user = db.query(models.User).filter_by(username=payload.Username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create user with role="user" by default
+        raise HTTPException(400, "Username already exists")
     user = models.User(
         username=payload.Username,
         hashed_password=payload.Password,
-        role="user"  # All new users are regular users
+        role="user",
     )
-    db.add(user); db.flush()
+    db.add(user)
+    db.flush()
     for u in payload.Utensils:
         db.add(models.UserUtensil(user_id=user.id, utensil=u))
     db.commit()
@@ -118,7 +119,6 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 
 # --- Equipment ------
 
-# Predefined list of all possible equipment options
 ALL_EQUIPMENT = [
     "French Press",
     "Pour-over",
@@ -127,8 +127,7 @@ ALL_EQUIPMENT = [
 ]
 
 @app.get("/equipment", response_model=EquipmentOut)
-def get_all_equipment(db: Session = Depends(get_db)):
-    # Return all predefined equipment options
+def get_all_equipment():
     return {"equipment": ALL_EQUIPMENT}
 
 @app.get("/users/{username}/equipment", response_model=EquipmentOut)
@@ -151,42 +150,222 @@ def update_equipment(username: str, payload: EquipmentIn, db: Session = Depends(
     return {"equipment": payload.Utensils}
 
 
-# --- Recipes -------
+# --- Master Recipes (public defaults) ---
+
+@app.get("/master/recipies", response_model=List[RecipeDetailOut])
+async def get_master_recipes(equipment: List[str] = Query(None), db: Session = Depends(get_db)):
+    try:
+        print("Fetching master recipes...")
+        print("Database session:", db)
+        
+        # First check if the Recipe model exists
+        try:
+            recipe_count = db.query(models.Recipe).count()
+            print(f"Total recipes in database: {recipe_count}")
+        except Exception as e:
+            print(f"Error counting recipes: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {str(e)}"
+            )
+
+        # Get all master recipes with error handling
+        try:
+            recipes = db.query(models.Recipe).filter(models.Recipe.is_master_recipe == 1).all()
+            print(f"Found {len(recipes)} master recipes")
+        except Exception as e:
+            print(f"Error querying master recipes: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error querying master recipes: {str(e)}"
+            )
+        
+        if not recipes:
+            print("No master recipes found")
+            return []
+            
+        # Filter recipes based on equipment
+        if equipment:
+            print(f"Filtering recipes by equipment: {equipment}")
+            filtered_recipes = []
+            for recipe in recipes:
+                try:
+                    # Check if recipe has utensils relationship
+                    if not hasattr(recipe, 'utensils'):
+                        print(f"Recipe {recipe.id} has no utensils relationship")
+                        continue
+                        
+                    recipe_equipment = [ru.utensil for ru in recipe.utensils]
+                    print(f"Recipe {recipe.id} equipment: {recipe_equipment}")
+                    
+                    if any(e in recipe_equipment for e in equipment):
+                        # Check if recipe has ratings relationship
+                        if not hasattr(recipe, 'ratings'):
+                            print(f"Recipe {recipe.id} has no ratings relationship")
+                            continue
+                            
+                        ratings = [rt.rating for rt in recipe.ratings]
+                        notes = [nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else []
+                        avg = int(sum(ratings) / len(ratings)) if ratings else 0
+                        
+                        filtered_recipes.append(
+                            RecipeDetailOut(
+                                id=recipe.id,
+                                title=recipe.title,
+                                description=recipe.description or "",
+                                equipment=recipe_equipment,
+                                ingredients=[ing.text for ing in recipe.ingredients] if hasattr(recipe, 'ingredients') else [],
+                                instructions=[inst.step for inst in recipe.instructions] if hasattr(recipe, 'instructions') else [],
+                                userRating=avg,
+                                userNotes=notes,
+                                isMasterRecipe=True
+                            )
+                        )
+                except Exception as e:
+                    print(f"Error processing recipe {recipe.id}: {str(e)}")
+                    continue
+            print(f"Returning {len(filtered_recipes)} filtered recipes")
+            return filtered_recipes
+            
+        # If no equipment filter, return all master recipes
+        print("No equipment filter, returning all master recipes")
+        result = []
+        for recipe in recipes:
+            try:
+                result.append(
+                    RecipeDetailOut(
+                        id=recipe.id,
+                        title=recipe.title,
+                        description=recipe.description or "",
+                        equipment=[ru.utensil for ru in recipe.utensils] if hasattr(recipe, 'utensils') else [],
+                        ingredients=[ing.text for ing in recipe.ingredients] if hasattr(recipe, 'ingredients') else [],
+                        instructions=[inst.step for inst in recipe.instructions] if hasattr(recipe, 'instructions') else [],
+                        userRating=int(sum([rt.rating for rt in recipe.ratings]) / len(recipe.ratings)) if hasattr(recipe, 'ratings') and recipe.ratings else 0,
+                        userNotes=[nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else [],
+                        isMasterRecipe=True
+                    )
+                )
+            except Exception as e:
+                print(f"Error processing recipe {recipe.id}: {str(e)}")
+                continue
+        print(f"Returning {len(result)} recipes")
+        return result
+    except Exception as e:
+        print(f"Error in get_master_recipes: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching master recipes: {str(e)}"
+        )
+
+
+# --- Recipes (user-scoped) -------
 
 @app.get("/recipies", response_model=RecipesOut)
-def list_recipes(equipment: List[str] = Query(...), db: Session = Depends(get_db)):
-    raw = (
-        db.query(models.Recipe)
-          .join(models.RecipeUtensil)
-          .filter(models.RecipeUtensil.utensil.in_(equipment))
-          .all()
-    )
-    out: List[RecipeDetailOut] = []
-    for r in raw:
-        ratings = [rt.rating for rt in r.ratings]
-        notes   = [nt.content for nt in r.notes]
-        avg     = int(sum(ratings) / len(ratings)) if ratings else 0
+def list_recipes(
+    username: str = Query(...),
+    equipment: List[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        print(f"Fetching personal recipes for user: {username}")
+        
+        user = db.query(models.User).filter_by(username=username).first()
+        if not user:
+            raise HTTPException(404, "User not found")
+        print(f"Found user with ID: {user.id}")
 
-        out.append(
-            RecipeDetailOut(
-                id=r.id,
-                title=r.title,
-                description=r.description or "",
-                equipment=[ru.utensil for ru in r.utensils],
-                ingredients=[ing.text for ing in r.ingredients],
-                instructions=[inst.step for inst in r.instructions],
-                userRating=avg,
-                userNotes=notes,
-                isMasterRecipe=r.is_master_recipe,
-            )
+        # Get personal recipes for this user
+        raw = (
+            db.query(models.Recipe)
+              .filter(
+                  models.Recipe.is_master_recipe == 0,  # Only personal recipes
+                  models.Recipe.user_id == user.id,     # Only this user's recipes
+              )
+              .all()
         )
-    return {"recipes": out}
+        print(f"Found {len(raw)} personal recipes for user")
+
+        # Filter by equipment if provided
+        if equipment:
+            print(f"Filtering recipes by equipment: {equipment}")
+            filtered = []
+            for r in raw:
+                try:
+                    recipe_equipment = [ru.utensil for ru in r.utensils] if hasattr(r, 'utensils') else []
+                    print(f"Recipe {r.id} equipment: {recipe_equipment}")
+                    if any(e in recipe_equipment for e in equipment):
+                        filtered.append(r)
+                except Exception as e:
+                    print(f"Error checking equipment for recipe {r.id}: {str(e)}")
+                    continue
+            raw = filtered
+            print(f"After equipment filter: {len(raw)} recipes")
+
+        out: List[RecipeDetailOut] = []
+        for r in raw:
+            try:
+                ratings = [rt.rating for rt in r.ratings] if hasattr(r, 'ratings') else []
+                notes = [nt.content for nt in r.notes] if hasattr(r, 'notes') else []
+                avg = int(sum(ratings) / len(ratings)) if ratings else 0
+
+                recipe_equipment = [ru.utensil for ru in r.utensils] if hasattr(r, 'utensils') else []
+                print(f"Processing recipe {r.id} with equipment: {recipe_equipment}")
+
+                out.append(
+                    RecipeDetailOut(
+                        id=r.id,
+                        title=r.title,
+                        description=r.description or "",
+                        equipment=recipe_equipment,
+                        ingredients=[ing.text for ing in r.ingredients] if hasattr(r, 'ingredients') else [],
+                        instructions=[inst.step for inst in r.instructions] if hasattr(r, 'instructions') else [],
+                        userRating=avg,
+                        userNotes=notes,
+                        isMasterRecipe=False
+                    )
+                )
+            except Exception as e:
+                print(f"Error processing recipe {r.id}: {str(e)}")
+                continue
+
+        print(f"Returning {len(out)} recipes")
+        return {"recipes": out}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in list_recipes: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching recipes: {str(e)}"
+        )
+
 
 @app.get("/recipie/{id}", response_model=RecipeDetailOut)
-def get_recipe(id: int, db: Session = Depends(get_db)):
+def get_recipe(
+    id: int,
+    username: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
     r = db.query(models.Recipe).get(id)
     if not r:
         raise HTTPException(404, "Recipe not found")
+    # allow viewing master or your own
+    if r.is_master_recipe == 0 and r.user_id != user.id:
+        raise HTTPException(403, "Not your recipe")
+
     ratings = [rt.rating for rt in r.ratings]
     notes   = [nt.content for nt in r.notes]
     avg     = int(sum(ratings) / len(ratings)) if ratings else 0
@@ -200,13 +379,28 @@ def get_recipe(id: int, db: Session = Depends(get_db)):
         instructions=[inst.step for inst in r.instructions],
         userRating=avg,
         userNotes=notes,
-        isMasterRecipe=r.is_master_recipe,
+        isMasterRecipe=bool(r.is_master_recipe),
     )
 
+
 @app.post("/recipies", status_code=201)
-def create_recipe(payload: RecipeCreate, db: Session = Depends(get_db)):
-    r = models.Recipe(title=payload.Title, description=payload.Description)
-    db.add(r); db.flush()
+def create_recipe(
+    payload: RecipeCreate,
+    username: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    r = models.Recipe(
+        title=payload.Title,
+        description=payload.Description,
+        user_id=user.id,
+        is_master_recipe=0,
+    )
+    db.add(r)
+    db.flush()
     for u in payload.Utensils:
         db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
     for step in payload.Recipie.split("\n"):
@@ -216,16 +410,26 @@ def create_recipe(payload: RecipeCreate, db: Session = Depends(get_db)):
     db.commit()
     return {"id": r.id}
 
+
 @app.put("/recipies/{id}")
-def update_recipe(id: int, payload: RecipeUpdate, username: str = Query(...), db: Session = Depends(get_db)):
+def update_recipe(
+    id: int,
+    payload: RecipeUpdate,
+    username: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
     r = db.query(models.Recipe).get(id)
     if not r:
         raise HTTPException(404, "Recipe not found")
-    
-    # Check if trying to edit a master recipe
     if r.is_master_recipe:
-        raise HTTPException(403, "Cannot edit master recipes directly. Please create a personal copy first.")
-    
+        raise HTTPException(403, "Cannot edit master recipes directly.")
+    if r.user_id != user.id:
+        raise HTTPException(403, "Not your recipe")
+
     r.title = payload.Title
     r.description = payload.Description
     db.query(models.RecipeUtensil).filter_by(recipe_id=id).delete()
@@ -240,42 +444,52 @@ def update_recipe(id: int, payload: RecipeUpdate, username: str = Query(...), db
     db.commit()
     return {"status": "ok"}
 
+
 @app.delete("/recipies/{id}")
-def delete_recipe(id: int, username: str = Query(...), db: Session = Depends(get_db)):
+def delete_recipe(
+    id: int,
+    username: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
     r = db.query(models.Recipe).get(id)
     if not r:
         raise HTTPException(404, "Recipe not found")
-    
-    # Check if trying to delete a master recipe
     if r.is_master_recipe:
         raise HTTPException(403, "Cannot delete master recipes")
-    
-    # Delete all related records first
+    if r.user_id != user.id:
+        raise HTTPException(403, "Not your recipe")
+
     db.query(models.RecipeUtensil).filter_by(recipe_id=id).delete()
     db.query(models.RecipeInstruction).filter_by(recipe_id=id).delete()
     db.query(models.RecipeIngredient).filter_by(recipe_id=id).delete()
     db.query(models.Rating).filter_by(recipe_id=id).delete()
     db.query(models.Note).filter_by(recipe_id=id).delete()
-    
-    # Delete the recipe
+
     db.delete(r)
     db.commit()
     return {"status": "ok"}
 
 
-# --- Ratings & Notes ---
-
 @app.post("/recipies/{id}/rating")
 def save_rating(id: int, payload: RatingIn, db: Session = Depends(get_db)):
+    # Delete any existing ratings for this recipe
+    db.query(models.Rating).filter_by(recipe_id=id).delete()
+    # Add the new rating
     db.add(models.Rating(recipe_id=id, rating=payload.rating))
     db.commit()
     return {"status": "ok"}
+
 
 @app.post("/recipies/{id}/notes")
 def add_note(id: int, payload: NoteIn, db: Session = Depends(get_db)):
     db.add(models.Note(recipe_id=id, content=payload.note))
     db.commit()
     return {"status": "ok"}
+
 
 @app.delete("/recipies/{id}/notes/{note_index}")
 def delete_note(id: int, note_index: int, db: Session = Depends(get_db)):
@@ -286,32 +500,39 @@ def delete_note(id: int, note_index: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "ok"}
 
-@app.post("/recipies/{id}/clone")
-def clone_recipe(id: int, payload: RecipeUpdate, db: Session = Depends(get_db)):
-    # Get the original recipe
+
+@app.post("/recipies/{id}/clone", status_code=201)
+def clone_recipe(
+    id: int,
+    payload: RecipeUpdate,
+    username: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
     original = db.query(models.Recipe).get(id)
     if not original:
         raise HTTPException(404, "Recipe not found")
+    if original.is_master_recipe == 0:
+        raise HTTPException(403, "Can only clone master recipes")
 
-    # Create a new recipe as a personal copy with the edited data
     r = models.Recipe(
         title=payload.Title,
         description=payload.Description,
-        is_master_recipe=0  # Set as personal recipe
+        is_master_recipe=0,
+        user_id=user.id,
     )
-    db.add(r); db.flush()
+    db.add(r)
+    db.flush()
 
-    # Add utensils from the edited data
     for u in payload.Utensils:
         db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
-
-    # Add ingredients from the edited data
-    for ingredient in payload.Ingredients:
-        db.add(models.RecipeIngredient(recipe_id=r.id, text=ingredient))
-
-    # Add instructions from the edited data
     for step in payload.Recipie.split("\n"):
         db.add(models.RecipeInstruction(recipe_id=r.id, step=step))
+    for ingredient in payload.Ingredients:
+        db.add(models.RecipeIngredient(recipe_id=r.id, text=ingredient))
 
     db.commit()
     return {"id": r.id}
@@ -319,58 +540,160 @@ def clone_recipe(id: int, payload: RecipeUpdate, db: Session = Depends(get_db)):
 
 # --- Admin ---------
 
-@app.get("/admin/recipes", response_model=RecipesOut)
-def admin_list(username: str = Query(...), db: Session = Depends(get_db)):
-    check_admin(username, db)  # Check if user is admin
-    raw = db.query(models.Recipe).all()
-    out: List[RecipeDetailOut] = []
-    for r in raw:
-        ratings = [rt.rating for rt in r.ratings]
-        notes   = [nt.content for nt in r.notes]
-        avg     = int(sum(ratings) / len(ratings)) if ratings else 0
-
-        out.append(
-            RecipeDetailOut(
-                id=r.id,
-                title=r.title,
-                description=r.description or "",
-                equipment=[ru.utensil for ru in r.utensils],
-                ingredients=[ing.text for ing in r.ingredients],
-                instructions=[inst.step for inst in r.instructions],
-                userRating=avg,
-                userNotes=notes,
-                isMasterRecipe=r.is_master_recipe,
+@app.get("/admin/recipes", response_model=List[RecipeDetailOut])
+async def get_admin_recipes(username: str = Query(...), db: Session = Depends(get_db)):
+    try:
+        print(f"Fetching admin recipes for user: {username}")
+        
+        # Verify user exists and is admin
+        try:
+            user = db.query(models.User).filter_by(username=username).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            if user.role != "admin":
+                raise HTTPException(status_code=403, detail="Admin access required")
+            print(f"User verified as admin: {username}")
+        except Exception as e:
+            print(f"Error verifying user: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
+            
+        # Get only master recipes
+        try:
+            recipes = db.query(models.Recipe).filter(models.Recipe.is_master_recipe == 1).all()
+            print(f"Found {len(recipes)} master recipes")
+        except Exception as e:
+            print(f"Error querying recipes: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error querying recipes: {str(e)}"
             )
+        
+        result = []
+        for recipe in recipes:
+            try:
+                # Get recipe details
+                ratings = [rt.rating for rt in recipe.ratings] if hasattr(recipe, 'ratings') else []
+                notes = [nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else []
+                avg = int(sum(ratings) / len(ratings)) if ratings else 0
+                
+                result.append(
+                    RecipeDetailOut(
+                        id=recipe.id,
+                        title=recipe.title,
+                        description=recipe.description or "",
+                        equipment=[ru.utensil for ru in recipe.utensils] if hasattr(recipe, 'utensils') else [],
+                        ingredients=[ing.text for ing in recipe.ingredients] if hasattr(recipe, 'ingredients') else [],
+                        instructions=[inst.step for inst in recipe.instructions] if hasattr(recipe, 'instructions') else [],
+                        userRating=avg,
+                        userNotes=notes,
+                        isMasterRecipe=True
+                    )
+                )
+            except Exception as e:
+                print(f"Error processing recipe {recipe.id}: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
+                continue
+                
+        print(f"Returning {len(result)} master recipes")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_admin_recipes: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching admin recipes: {str(e)}"
         )
-    return {"recipes": out}
 
 @app.post("/admin/recipes", status_code=201)
 def admin_create(payload: RecipeCreate, username: str = Query(...), db: Session = Depends(get_db)):
-    check_admin(username, db)  # Check if user is admin
-    r = models.Recipe(
-        title=payload.Title,
-        description=payload.Description,
-        is_master_recipe=1  # Set as master recipe
-    )
-    db.add(r); db.flush()
-    for u in payload.Utensils:
-        db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
-    for step in payload.Recipie.split("\n"):
-        db.add(models.RecipeInstruction(recipe_id=r.id, step=step))
-    for ingredient in payload.Ingredients:
-        db.add(models.RecipeIngredient(recipe_id=r.id, text=ingredient))
-    db.commit()
-    return {"id": r.id}
+    try:
+        print(f"Creating master recipe for admin user: {username}")
+        
+        # Verify user exists and is admin
+        try:
+            user = db.query(models.User).filter_by(username=username).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            if user.role != "admin":
+                raise HTTPException(status_code=403, detail="Admin access required")
+            print(f"User verified as admin: {username}")
+        except Exception as e:
+            print(f"Error verifying user: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
+
+        # Create the recipe
+        try:
+            print(f"Creating recipe with title: {payload.Title}")
+            r = models.Recipe(
+                title=payload.Title,
+                description=payload.Description,
+                is_master_recipe=1,
+                user_id=user.id  # Add user_id for master recipes
+            )
+            db.add(r)
+            db.flush()
+            print(f"Created recipe with ID: {r.id}")
+
+            # Add utensils
+            print(f"Adding utensils: {payload.Utensils}")
+            for u in payload.Utensils:
+                db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
+            
+            # Add instructions
+            print(f"Adding instructions from: {payload.Recipie}")
+            for step in payload.Recipie.split("\n"):
+                db.add(models.RecipeInstruction(recipe_id=r.id, step=step))
+            
+            # Add ingredients
+            print(f"Adding ingredients: {payload.Ingredients}")
+            for ingredient in payload.Ingredients:
+                db.add(models.RecipeIngredient(recipe_id=r.id, text=ingredient))
+            
+            db.commit()
+            print(f"Successfully created master recipe with ID: {r.id}")
+            return {"id": r.id}
+            
+        except Exception as e:
+            print(f"Error creating recipe: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error creating recipe: {str(e)}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in admin_create: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating master recipe: {str(e)}"
+        )
 
 @app.put("/admin/recipes/{id}")
 def admin_update(id: int, payload: RecipeUpdate, username: str = Query(...), db: Session = Depends(get_db)):
-    check_admin(username, db)  # Check if user is admin
+    check_admin(username, db)
     r = db.query(models.Recipe).get(id)
     if not r:
         raise HTTPException(404, "Recipe not found")
     r.title = payload.Title
     r.description = payload.Description
-    r.is_master_recipe = 1  # Ensure it remains a master recipe
+    r.is_master_recipe = 1
     db.query(models.RecipeUtensil).filter_by(recipe_id=r.id).delete()
     for u in payload.Utensils:
         db.add(models.RecipeUtensil(recipe_id=r.id, utensil=u["Utensil"]))
@@ -385,9 +708,17 @@ def admin_update(id: int, payload: RecipeUpdate, username: str = Query(...), db:
 
 @app.delete("/admin/recipes/{id}")
 def admin_delete(id: int, username: str = Query(...), db: Session = Depends(get_db)):
-    check_admin(username, db)  # Check if user is admin
+    check_admin(username, db)
     r = db.query(models.Recipe).get(id)
     if not r:
         raise HTTPException(404, "Recipe not found")
-    db.delete(r); db.commit()
+    db.delete(r)
+    db.commit()
     return {"status": "ok"}
+
+@app.get("/users/{username}/role", response_model=UserRoleOut)
+def get_user_role(username: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    return {"role": user.role}

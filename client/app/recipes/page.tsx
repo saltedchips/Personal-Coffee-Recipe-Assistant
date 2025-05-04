@@ -11,9 +11,7 @@ export default function RecipesPage() {
 
   useEffect(() => {
     async function load() {
-      // 1. get user equipment
       const { equipment } = await fetchEquipment();
-      // 2. fetch recipes compatible
       const { recipes: recs } = await fetchRecipes(equipment);
       setRecipes(recs);
       setLoading(false);
@@ -32,7 +30,7 @@ export default function RecipesPage() {
   return (
     <div className="min-h-screen p-6 bg-[var(--coffee-cream)]">
       <h1 className="text-3xl font-bold mb-6 text-[var(--coffee-espresso)]">
-        Recipes
+        My Recipes
       </h1>
 
       {recipes.length === 0 ? (

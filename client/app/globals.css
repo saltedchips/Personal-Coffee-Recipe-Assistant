@@ -60,6 +60,27 @@ a:hover {
   .btn-coffee:hover {
     background-color: var(--coffee-caramel);
   }
+  .btn-coffee-invert {
+    @apply px-4 py-2 font-medium transition;
+    border: 2px solid var(--coffee-latte);
+    color: var(--coffee-latte);
+    background-color: white;
+    border-radius: inherit;
+  }
+  .btn-coffee-invert:hover {
+    border-color: var(--coffee-caramel);
+  }
+
+  .btn-delete {
+    @apply px-4 py-2 rounded-lg font-medium transition;
+    background-color: var(--coffee-cream);
+    color: var(--coffee-espresso);
+    border: 2px solid var(--coffee-espresso);
+  }
+  .btn-delete:hover {
+    color: white;
+    background-color: var(--coffee-espresso);
+  }
 }
 
 nav a {

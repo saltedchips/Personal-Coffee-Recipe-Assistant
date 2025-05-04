@@ -46,8 +46,8 @@ export default function EditRecipePage() {
       // If this is a master recipe, create a personal copy first
       if (isMasterRecipe) {
         const response = await saveAsMyVersion(recipeId, data);
-        // After creating the personal copy, redirect to edit the new recipe
-        router.push(`/recipes/${response.id}/edit`);
+        // After creating the personal copy, redirect to the recipe detail page
+        router.push(`/recipes/${response.id}`);
         return;
       }
 

@@ -66,8 +66,14 @@ export default function RecipeDetailPage() {
   }
 
   const handleRate = async (stars: number) => {
-    setRecipe({ ...recipe, userRating: stars });
-    await saveRating(recipe.id, stars);
+    try {
+      await saveRating(recipe.id, stars);
+      setRating(stars);
+      setRecipe({ ...recipe, userRating: stars });
+    } catch (err) {
+      console.error("Failed to save rating:", err);
+      setError("Failed to save rating");
+    }
   };
 
   const handleAddNote = async () => {
@@ -164,7 +170,7 @@ export default function RecipeDetailPage() {
         {!recipe.isMasterRecipe && (
           <button
             onClick={handleDelete}
-            className="btn-coffee bg-red-600 hover:bg-red-700"
+            className="btn-delete"
           >
             Delete Recipe
           </button>

@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { fetchAllRecipes } from '@/lib/api';
-import type { RecipeDetail } from '@/lib/api';
+// client/app/admin/page.tsx
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { fetchAllRecipes } from "@/lib/api";
+import type { RecipeDetail } from "@/lib/api";
 
 export default function AdminPage() {
   const [recipes, setRecipes] = useState<RecipeDetail[]>([]);
@@ -14,7 +17,7 @@ export default function AdminPage() {
         setRecipes(data.recipes);
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load recipes');
+        setError(err instanceof Error ? err.message : "Failed to load recipes");
       } finally {
         setLoading(false);
       }
@@ -23,7 +26,11 @@ export default function AdminPage() {
   }, []);
 
   if (loading) {
-    return <div>Loading admin recipes...</div>;
+    return (
+      <div className="p-4">
+        <p>Loading admin recipes...</p>
+      </div>
+    );
   }
 
   if (error) {
@@ -45,14 +52,12 @@ export default function AdminPage() {
           <div key={recipe.id} className="border p-4 rounded">
             <h2 className="text-xl font-semibold">{recipe.title}</h2>
             <p className="text-gray-600">{recipe.description}</p>
-            <div className="mt-2">
-              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
-                {recipe.isMasterRecipe ? 'Master Recipe' : 'Personal Recipe'}
-              </span>
-            </div>
+            <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
+              {recipe.isMasterRecipe ? "Master Recipe" : "Personal Recipe"}
+            </span>
           </div>
         ))}
       </div>
     </div>
   );
-} 
+}

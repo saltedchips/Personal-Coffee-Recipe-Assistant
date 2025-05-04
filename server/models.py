@@ -7,18 +7,25 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
+
     id              = Column(Integer, primary_key=True, index=True)
     username        = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role            = Column(String, nullable=False, default="user")  # "user" or "admin"
 
+    # relationship back to recipes
+    recipes         = relationship("Recipe", back_populates="owner")
+
+    # user’s chosen utensils
     utensils = relationship(
         "UserUtensil",
         back_populates="user",
+        cascade="all, delete-orphan",
     )
 
 class UserUtensil(Base):
     __tablename__ = "user_utensils"
+
     id       = Column(Integer, primary_key=True, index=True)
     user_id  = Column(Integer, ForeignKey("users.id"), nullable=False)
     utensil  = Column(String, nullable=False)
@@ -27,10 +34,15 @@ class UserUtensil(Base):
 
 class Recipe(Base):
     __tablename__ = "recipes"
-    id          = Column(Integer, primary_key=True, index=True)
-    title       = Column(String, nullable=False)
-    description = Column(Text, default="")
-    is_master_recipe = Column(Integer, default=0)  # 0 for personal recipes, 1 for master recipes
+
+    id               = Column(Integer, primary_key=True, index=True)
+    title            = Column(String, nullable=False)
+    description      = Column(Text, default="")
+    is_master_recipe = Column(Integer, default=0)  # 0 = personal, 1 = master
+
+    # NEW: bind each recipe to its creator
+    user_id          = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner            = relationship("User", back_populates="recipes")
 
     utensils     = relationship(
         "RecipeUtensil",
@@ -60,6 +72,7 @@ class Recipe(Base):
 
 class RecipeUtensil(Base):
     __tablename__ = "recipe_utensils"
+
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     utensil   = Column(String, nullable=False)
@@ -68,6 +81,7 @@ class RecipeUtensil(Base):
 
 class RecipeIngredient(Base):
     __tablename__ = "recipe_ingredients"
+
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     text      = Column(String, nullable=False)
@@ -76,6 +90,7 @@ class RecipeIngredient(Base):
 
 class RecipeInstruction(Base):
     __tablename__ = "recipe_instructions"
+
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     step      = Column(Text, nullable=False)
@@ -84,6 +99,7 @@ class RecipeInstruction(Base):
 
 class Rating(Base):
     __tablename__ = "ratings"
+
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     rating    = Column(Integer, nullable=False)
@@ -92,6 +108,7 @@ class Rating(Base):
 
 class Note(Base):
     __tablename__ = "notes"
+
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     content   = Column(Text, nullable=False)

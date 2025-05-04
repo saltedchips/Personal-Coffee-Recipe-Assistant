@@ -1,16 +1,13 @@
+// client/app/admin/recipes/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  fetchAllRecipes,
-  deleteMasterRecipe,
-} from "@/lib/api";
+import { fetchAllRecipes, deleteMasterRecipe } from "@/lib/api";
+import type { RecipeDetail } from "@/lib/api";
 
 export default function AdminRecipesPage() {
-  const [recipes, setRecipes] = useState<
-    ({ id: string } & import("@/lib/api").RecipeFormData)[]
-  >([]);
+  const [recipes, setRecipes] = useState<RecipeDetail[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,7 +26,9 @@ export default function AdminRecipesPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--coffee-cream)]">
-        <p className="text-[var(--coffee-espresso)]">Loading admin recipes…</p>
+        <p className="text-[var(--coffee-espresso)]">
+          Loading admin recipes…
+        </p>
       </div>
     );
   }
@@ -48,7 +47,9 @@ export default function AdminRecipesPage() {
       </Link>
 
       {recipes.length === 0 ? (
-        <p className="text-[var(--coffee-espresso)]">No recipes in master DB.</p>
+        <p className="text-[var(--coffee-espresso)]">
+          No recipes in master DB.
+        </p>
       ) : (
         <div className="space-y-4">
           {recipes.map((r) => (
