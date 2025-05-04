@@ -123,10 +123,13 @@ export async function fetchRecipes(
 
 export async function fetchMasterRecipes(equipment: string[]): Promise<Recipe[]> {
   try {
-    const equipmentParam = equipment.map(e => `equipment=${encodeURIComponent(e)}`).join('&');
+    const user = getCurrentUser();
+    const params = new URLSearchParams();
+    params.append("username", user);
+    equipment.forEach(e => params.append("equipment", e));
     console.log('Fetching master recipes with equipment:', equipment);
     
-    const response = await fetch(`${API_URL}/master/recipies?${equipmentParam}`, {
+    const response = await fetch(`${API_URL}/master/recipies?${params}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

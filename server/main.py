@@ -153,7 +153,11 @@ def update_equipment(username: str, payload: EquipmentIn, db: Session = Depends(
 # --- Master Recipes (public defaults) ---
 
 @app.get("/master/recipies", response_model=List[RecipeDetailOut])
-async def get_master_recipes(equipment: List[str] = Query(None), db: Session = Depends(get_db)):
+async def get_master_recipes(
+    username: str = Query(...),
+    equipment: List[str] = Query(None), 
+    db: Session = Depends(get_db)
+):
     try:
         print("Fetching master recipes...")
         print("Database session:", db)
@@ -170,6 +174,11 @@ async def get_master_recipes(equipment: List[str] = Query(None), db: Session = D
                 status_code=500,
                 detail=f"Database error: {str(e)}"
             )
+
+        # Get user
+        user = db.query(models.User).filter_by(username=username).first()
+        if not user:
+            raise HTTPException(404, "User not found")
 
         # Get all master recipes with error handling
         try:
@@ -203,14 +212,10 @@ async def get_master_recipes(equipment: List[str] = Query(None), db: Session = D
                     print(f"Recipe {recipe.id} equipment: {recipe_equipment}")
                     
                     if any(e in recipe_equipment for e in equipment):
-                        # Check if recipe has ratings relationship
-                        if not hasattr(recipe, 'ratings'):
-                            print(f"Recipe {recipe.id} has no ratings relationship")
-                            continue
-                            
-                        ratings = [rt.rating for rt in recipe.ratings]
+                        # Get only this user's rating
+                        user_rating = db.query(models.Rating).filter_by(recipe_id=recipe.id, user_id=user.id).first()
+                        rating = user_rating.rating if user_rating else 0
                         notes = [nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else []
-                        avg = int(sum(ratings) / len(ratings)) if ratings else 0
                         
                         filtered_recipes.append(
                             RecipeDetailOut(
@@ -220,7 +225,7 @@ async def get_master_recipes(equipment: List[str] = Query(None), db: Session = D
                                 equipment=recipe_equipment,
                                 ingredients=[ing.text for ing in recipe.ingredients] if hasattr(recipe, 'ingredients') else [],
                                 instructions=[inst.step for inst in recipe.instructions] if hasattr(recipe, 'instructions') else [],
-                                userRating=avg,
+                                userRating=rating,
                                 userNotes=notes,
                                 isMasterRecipe=True
                             )
@@ -236,6 +241,11 @@ async def get_master_recipes(equipment: List[str] = Query(None), db: Session = D
         result = []
         for recipe in recipes:
             try:
+                # Get only this user's rating
+                user_rating = db.query(models.Rating).filter_by(recipe_id=recipe.id, user_id=user.id).first()
+                rating = user_rating.rating if user_rating else 0
+                notes = [nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else []
+                
                 result.append(
                     RecipeDetailOut(
                         id=recipe.id,
@@ -244,8 +254,8 @@ async def get_master_recipes(equipment: List[str] = Query(None), db: Session = D
                         equipment=[ru.utensil for ru in recipe.utensils] if hasattr(recipe, 'utensils') else [],
                         ingredients=[ing.text for ing in recipe.ingredients] if hasattr(recipe, 'ingredients') else [],
                         instructions=[inst.step for inst in recipe.instructions] if hasattr(recipe, 'instructions') else [],
-                        userRating=int(sum([rt.rating for rt in recipe.ratings]) / len(recipe.ratings)) if hasattr(recipe, 'ratings') and recipe.ratings else 0,
-                        userNotes=[nt.content for nt in recipe.notes] if hasattr(recipe, 'notes') else [],
+                        userRating=rating,
+                        userNotes=notes,
                         isMasterRecipe=True
                     )
                 )
@@ -310,9 +320,10 @@ def list_recipes(
         out: List[RecipeDetailOut] = []
         for r in raw:
             try:
-                ratings = [rt.rating for rt in r.ratings] if hasattr(r, 'ratings') else []
+                # Get only this user's rating
+                user_rating = db.query(models.Rating).filter_by(recipe_id=r.id, user_id=user.id).first()
+                rating = user_rating.rating if user_rating else 0
                 notes = [nt.content for nt in r.notes] if hasattr(r, 'notes') else []
-                avg = int(sum(ratings) / len(ratings)) if ratings else 0
 
                 recipe_equipment = [ru.utensil for ru in r.utensils] if hasattr(r, 'utensils') else []
                 print(f"Processing recipe {r.id} with equipment: {recipe_equipment}")
@@ -325,7 +336,7 @@ def list_recipes(
                         equipment=recipe_equipment,
                         ingredients=[ing.text for ing in r.ingredients] if hasattr(r, 'ingredients') else [],
                         instructions=[inst.step for inst in r.instructions] if hasattr(r, 'instructions') else [],
-                        userRating=avg,
+                        userRating=rating,
                         userNotes=notes,
                         isMasterRecipe=False
                     )
@@ -366,9 +377,10 @@ def get_recipe(
     if r.is_master_recipe == 0 and r.user_id != user.id:
         raise HTTPException(403, "Not your recipe")
 
-    ratings = [rt.rating for rt in r.ratings]
-    notes   = [nt.content for nt in r.notes]
-    avg     = int(sum(ratings) / len(ratings)) if ratings else 0
+    # Get only this user's rating
+    user_rating = db.query(models.Rating).filter_by(recipe_id=id, user_id=user.id).first()
+    rating = user_rating.rating if user_rating else 0
+    notes = [nt.content for nt in r.notes]
 
     return RecipeDetailOut(
         id=r.id,
@@ -377,7 +389,7 @@ def get_recipe(
         equipment=[ru.utensil for ru in r.utensils],
         ingredients=[ing.text for ing in r.ingredients],
         instructions=[inst.step for inst in r.instructions],
-        userRating=avg,
+        userRating=rating,
         userNotes=notes,
         isMasterRecipe=bool(r.is_master_recipe),
     )
@@ -475,11 +487,15 @@ def delete_recipe(
 
 
 @app.post("/recipies/{id}/rating")
-def save_rating(id: int, payload: RatingIn, db: Session = Depends(get_db)):
-    # Delete any existing ratings for this recipe
-    db.query(models.Rating).filter_by(recipe_id=id).delete()
+def save_rating(id: int, payload: RatingIn, username: str = Query(...), db: Session = Depends(get_db)):
+    user = db.query(models.User).filter_by(username=username).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+        
+    # Delete any existing ratings for this recipe by this user
+    db.query(models.Rating).filter_by(recipe_id=id, user_id=user.id).delete()
     # Add the new rating
-    db.add(models.Rating(recipe_id=id, rating=payload.rating))
+    db.add(models.Rating(recipe_id=id, user_id=user.id, rating=payload.rating))
     db.commit()
     return {"status": "ok"}
 

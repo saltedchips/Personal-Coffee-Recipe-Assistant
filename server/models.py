@@ -16,7 +16,7 @@ class User(Base):
     # relationship back to recipes
     recipes         = relationship("Recipe", back_populates="owner")
 
-    # user’s chosen utensils
+    # user's chosen utensils
     utensils = relationship(
         "UserUtensil",
         back_populates="user",
@@ -102,9 +102,11 @@ class Rating(Base):
 
     id        = Column(Integer, primary_key=True, index=True)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
+    user_id   = Column(Integer, ForeignKey("users.id"), nullable=False)
     rating    = Column(Integer, nullable=False)
 
     recipe    = relationship("Recipe", back_populates="ratings")
+    user      = relationship("User")
 
 class Note(Base):
     __tablename__ = "notes"
