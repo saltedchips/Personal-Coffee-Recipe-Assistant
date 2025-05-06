@@ -18,7 +18,7 @@ export default function RatingStars({
           aria-label={`${n} star`}
         >
           <span className={n <= rating ? "text-yellow-500" : "text-gray-300"}>
-            {n <= rating ? "★" : "☆"}
+          {n <= rating ? "★" : "☆"}
           </span>
         </button>
       ))}

@@ -123,7 +123,9 @@ ALL_EQUIPMENT = [
     "French Press",
     "Pour-over",
     "Espresso Machine",
-    "Cold Brew"
+    "Cold Brew",
+    "Drip Coffee",
+    "Moka Pot"
 ]
 
 @app.get("/equipment", response_model=EquipmentOut)

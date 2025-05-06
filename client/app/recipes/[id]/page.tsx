@@ -69,7 +69,7 @@ export default function RecipeDetailPage() {
     try {
       await saveRating(recipe.id, stars);
       setRating(stars);
-      setRecipe({ ...recipe, userRating: stars });
+    setRecipe({ ...recipe, userRating: stars });
     } catch (err) {
       console.error("Failed to save rating:", err);
       setError("Failed to save rating");
